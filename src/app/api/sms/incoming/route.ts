@@ -147,7 +147,29 @@ async function findOrCreateGorgiasTicket(from: string, to: string, body: string)
           const ticketsData = await ticketsResponse.json();
           console.log('All tickets found:', ticketsData.data?.length || 0);
           
-          // First, look for trashed SMS tickets for this phone number
+          // PRIORITY 1: Look for open SMS tickets first (active conversations)
+          const openSmsTickets = ticketsData.data?.filter((ticket: { status?: string; channel?: string; subject?: string; trashed_datetime?: string }) => 
+            ticket.status === 'open' && ticket.channel === 'sms' && !ticket.trashed_datetime
+          ) || [];
+          
+          console.log('Open SMS tickets found:', openSmsTickets.length);
+          
+          const phoneSpecificOpenTickets = openSmsTickets.filter((ticket: { subject?: string }) => 
+            ticket.subject && ticket.subject.includes(from)
+          );
+          
+          console.log('Phone-specific open tickets found:', phoneSpecificOpenTickets.length);
+          
+          if (phoneSpecificOpenTickets.length > 0) {
+            const existingTicket = phoneSpecificOpenTickets[0];
+            console.log('Adding message to existing active ticket:', existingTicket.id);
+            
+            // Add message to existing active ticket
+            const result = await addMessageToTicket(existingTicket.id, from, to, body, credentials);
+            return { ...result, isNewTicket: false };
+          }
+          
+          // PRIORITY 2: Only if no open tickets, then look for trashed tickets to restore
           const trashedSmsTickets = ticketsData.data?.filter((ticket: { status?: string; channel?: string; subject?: string; trashed_datetime?: string }) => 
             ticket.channel === 'sms' && ticket.trashed_datetime && ticket.subject && ticket.subject.includes(from)
           ) || [];
@@ -157,32 +179,10 @@ async function findOrCreateGorgiasTicket(from: string, to: string, body: string)
           if (trashedSmsTickets.length > 0) {
             // Untrash the most recent ticket and add message to it
             const ticketToRestore = trashedSmsTickets[0]; // Most recent first
-            console.log('Untrashing and restoring ticket:', ticketToRestore.id);
+            console.log('No active tickets found, untrashing and restoring ticket:', ticketToRestore.id);
             
             const result = await untrashAndAddMessage(ticketToRestore.id, from, to, body, credentials);
             return { ...result, isNewTicket: false, wasRestored: true };
-          }
-          
-          // If no trashed tickets, look for open SMS tickets (excluding trashed ones)
-          const openSmsTickets = ticketsData.data?.filter((ticket: { status?: string; channel?: string; subject?: string; trashed_datetime?: string }) => 
-            ticket.status === 'open' && ticket.channel === 'sms' && !ticket.trashed_datetime
-          ) || [];
-          
-          console.log('Open SMS tickets found:', openSmsTickets.length);
-          
-          const phoneSpecificTickets = openSmsTickets.filter((ticket: { subject?: string }) => 
-            ticket.subject && ticket.subject.includes(from)
-          );
-          
-          console.log('Phone-specific open tickets found:', phoneSpecificTickets.length);
-          
-          if (phoneSpecificTickets.length > 0) {
-            const existingTicket = phoneSpecificTickets[0];
-            console.log('Adding message to existing phone-specific ticket:', existingTicket.id);
-            
-            // Add message to existing ticket
-            const result = await addMessageToTicket(existingTicket.id, from, to, body, credentials);
-            return { ...result, isNewTicket: false };
           }
         }
       }
