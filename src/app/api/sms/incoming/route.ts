@@ -56,12 +56,7 @@ async function createGorgiasTicket(from: string, to: string, body: string) {
   const ticketData = {
     customer: {
       email: `sms${from}@rescuelink.com`,
-      channels: [
-        {
-          type: "phone",
-          address: from
-        }
-      ]
+      phone: from
     },
     messages: [{
       source: {

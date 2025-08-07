@@ -21,11 +21,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: 'ignored' });
     }
     
-    // Try to get phone from customer.phone field first, then fall back to email extraction
-    let customerPhone = ticket.customer.phone;
+    // Try multiple ways to get the phone number
+    let customerPhone = ticket.customer.phone || 
+                       ticket.original_message?.from ||
+                       ticket.customer.channels?.[0]?.address ||
+                       ticket.messages?.[0]?.source?.from?.address;
     
     if (customerPhone) {
-      console.log('Using phone from customer.phone field:', customerPhone);
+      console.log('Using phone from ticket data:', customerPhone);
     } else {
       // Fallback: Extract phone number from customer email (sms+15617259387@rescuelink.com)
       const customerEmail = ticket.customer.email;
@@ -36,6 +39,7 @@ export async function POST(req: NextRequest) {
       
       if (!phoneMatch) {
         console.error('Could not extract phone number from:', customerEmail);
+        console.error('Full ticket data:', JSON.stringify(ticket, null, 2));
         return NextResponse.json({ error: 'Could not extract phone number' }, { status: 400 });
       }
       

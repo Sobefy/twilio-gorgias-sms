@@ -15,10 +15,11 @@ async function testGorgiasAPI(authMethod = 'Bearer') {
     return;
   }
   
-  // Test data (matches your Make.com payload)
+  // Test data with phone number
   const testData = {
     customer: {
-      email: "sms+15551234567@rescuelink.com"
+      email: "sms+15551234567@rescuelink.com",
+      phone: "+15551234567"
     },
     messages: [{
       source: {
