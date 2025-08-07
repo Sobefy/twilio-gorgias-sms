@@ -5,37 +5,76 @@ const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TO
 
 export async function POST(req: NextRequest) {
   try {
-    const { ticket, message } = await req.json();
+    const body = await req.json();
+    console.log('Gorgias webhook received:', JSON.stringify(body, null, 2));
+    
+    const { ticket, message } = body;
+    
+    console.log('Processing outgoing SMS:');
+    console.log('- Message from agent:', message?.from_agent);
+    console.log('- Ticket channel:', ticket?.channel);
+    console.log('- Customer email:', ticket?.customer?.email);
     
     // Only process outgoing agent messages for SMS tickets
     if (!message.from_agent || ticket.channel !== 'sms') {
+      console.log('Ignoring: not agent message or not SMS channel');
       return NextResponse.json({ status: 'ignored' });
     }
     
     // Extract phone number from customer email (sms+15617259387@rescuelink.com)
     const customerEmail = ticket.customer.email;
-    const phoneMatch = customerEmail.match(/sms\+?([^@]+)/);
+    console.log('Extracting phone from email:', customerEmail);
+    
+    // More flexible regex to handle different formats
+    const phoneMatch = customerEmail.match(/sms([^@]*?)@/) || customerEmail.match(/(\+\d+)/);
     
     if (!phoneMatch) {
+      console.error('Could not extract phone number from:', customerEmail);
       return NextResponse.json({ error: 'Could not extract phone number' }, { status: 400 });
     }
     
-    const customerPhone = phoneMatch[1];
+    let customerPhone = phoneMatch[1];
+    
+    // Clean up phone number (remove + prefix if present)
+    if (customerPhone.startsWith('+')) {
+      customerPhone = customerPhone;
+    } else {
+      // If no + prefix, assume it needs one
+      customerPhone = '+' + customerPhone;
+    }
+    
+    console.log('Extracted phone number:', customerPhone);
     
     // Send SMS via Twilio
+    console.log('Sending SMS via Twilio:');
+    console.log('- From:', process.env.TWILIO_PHONE_NUMBER);
+    console.log('- To:', customerPhone);
+    console.log('- Body:', message.body_text);
+    
     const twilioMessage = await client.messages.create({
       body: message.body_text,
       from: process.env.TWILIO_PHONE_NUMBER,
       to: customerPhone
     });
     
+    console.log('SMS sent successfully:', twilioMessage.sid);
+    
     return NextResponse.json({ 
       success: true, 
-      messageSid: twilioMessage.sid 
+      messageSid: twilioMessage.sid,
+      to: customerPhone
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error sending SMS:', error);
-    return NextResponse.json({ error: 'Failed to send SMS' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error details:', {
+      message: errorMessage,
+      error: error
+    });
+    return NextResponse.json({ 
+      error: 'Failed to send SMS', 
+      details: errorMessage
+    }, { status: 500 });
   }
 }

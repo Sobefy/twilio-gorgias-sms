@@ -23,14 +23,14 @@ export async function POST(req: NextRequest) {
     if (messageBody === 'help') {
       // Create Gorgias ticket for help requests
       await createGorgiasTicket(From, To, 'Customer requested help via SMS');
-      return sendTwiMLResponse("Hi! You can text us anytime and someone from our Rescue Link team will respond. Please include your name in your message so we can assist you better. Reply STOP to opt out or email support@rescuelink.com");
+      return sendTwiMLResponse("Hi! You can text us anytime and someone from our Rescue Link team will respond. Please include your name in your message so we can assist you better. Reply STOP to opt out or email support@dryeyerescue.com");
     }
     
     // Create Gorgias ticket for general messages
     await createGorgiasTicket(From, To, Body);
     
     // Send auto-response
-    return sendTwiMLResponse("Thanks for contacting Rescue Link! We've received your message and will respond shortly. If this is your first time messaging us, please include your name so we can assist you better. For urgent matters, email support@rescuelink.com");
+    return sendTwiMLResponse("Thanks for contacting Rescue Link! We've received your message and will respond shortly. If this is your first time messaging us, please include your name so we can assist you better. For urgent matters, email support@dryeyerescue.com");
     
   } catch (error) {
     console.error('Error processing SMS:', error);
