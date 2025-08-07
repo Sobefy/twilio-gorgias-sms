@@ -79,11 +79,13 @@ async function createGorgiasTicket(from: string, to: string, body: string) {
   console.log('API endpoint:', `https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets`);
   console.log('Auth header:', process.env.GORGIAS_API_KEY ? 'API key present' : 'API key missing');
   
+  const credentials = Buffer.from(`${process.env.GORGIAS_USERNAME}:${process.env.GORGIAS_API_KEY}`).toString('base64');
+  
   const response = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.GORGIAS_API_KEY}`
+      'Authorization': `Basic ${credentials}`
     },
     body: JSON.stringify(ticketData)
   });
