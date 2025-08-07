@@ -112,13 +112,13 @@ async function createGorgiasTicket(from: string, to: string, body: string) {
 
 async function findOrCreateGorgiasTicket(from: string, to: string, body: string) {
   const credentials = Buffer.from(`${process.env.GORGIAS_USERNAME}:${process.env.GORGIAS_API_KEY}`).toString('base64');
-  const customerEmail = `sms${from}@rescuelink.com`;
   
   try {
-    console.log('Looking for existing customer and tickets for:', from);
+    console.log('Looking for existing customer and tickets for phone:', from);
     
-    // First, try to find existing customer
-    const customerResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/customers?email=${encodeURIComponent(customerEmail)}`, {
+    // Gorgias consolidates all SMS customers to generic email, so search for that
+    const genericSmsEmail = 'sms@rescuelink.com';
+    const customerResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/customers?email=${encodeURIComponent(genericSmsEmail)}`, {
       headers: {
         'Authorization': `Basic ${credentials}`
       }
@@ -126,14 +126,14 @@ async function findOrCreateGorgiasTicket(from: string, to: string, body: string)
     
     if (customerResponse.ok) {
       const customerData = await customerResponse.json();
-      console.log('Customer search result:', customerData.data?.length || 0, 'customers found');
+      console.log('Generic SMS customer search result:', customerData.data?.length || 0, 'customers found');
       
       if (customerData.data && customerData.data.length > 0) {
         const customer = customerData.data[0];
-        console.log('Found existing customer:', customer.id);
+        console.log('Found generic SMS customer:', customer.id);
         
-        // Look for existing open SMS tickets for this customer
-        const ticketsResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets?customer_id=${customer.id}&status=open&channel=sms&limit=1`, {
+        // Look for existing tickets for this customer (filter manually since API doesn't support status/channel params)
+        const ticketsResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets?customer_id=${customer.id}&limit=20`, {
           headers: {
             'Authorization': `Basic ${credentials}`
           }
@@ -141,11 +141,24 @@ async function findOrCreateGorgiasTicket(from: string, to: string, body: string)
         
         if (ticketsResponse.ok) {
           const ticketsData = await ticketsResponse.json();
-          console.log('Open SMS tickets found:', ticketsData.data?.length || 0);
+          console.log('All tickets found:', ticketsData.data?.length || 0);
           
-          if (ticketsData.data && ticketsData.data.length > 0) {
-            const existingTicket = ticketsData.data[0];
-            console.log('Adding message to existing ticket:', existingTicket.id);
+          // Filter for open SMS tickets first, then by phone number in subject
+          const openSmsTickets = ticketsData.data?.filter((ticket: { status?: string; channel?: string; subject?: string }) => 
+            ticket.status === 'open' && ticket.channel === 'sms'
+          ) || [];
+          
+          console.log('Open SMS tickets found:', openSmsTickets.length);
+          
+          const phoneSpecificTickets = openSmsTickets.filter((ticket: { subject?: string }) => 
+            ticket.subject && ticket.subject.includes(from)
+          );
+          
+          console.log('Phone-specific tickets found:', phoneSpecificTickets.length);
+          
+          if (phoneSpecificTickets.length > 0) {
+            const existingTicket = phoneSpecificTickets[0];
+            console.log('Adding message to existing phone-specific ticket:', existingTicket.id);
             
             // Add message to existing ticket
             const result = await addMessageToTicket(existingTicket.id, from, to, body, credentials);
