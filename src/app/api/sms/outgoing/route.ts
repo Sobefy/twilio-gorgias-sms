@@ -15,8 +15,10 @@ export async function POST(req: NextRequest) {
     console.log('- Ticket channel:', ticket?.channel);
     console.log('- Customer email:', ticket?.customer?.email);
     
-    // Convert string boolean to actual boolean for comparison
-    const isFromAgent = message.from_agent === true || message.from_agent === 'true';
+    // Convert string boolean to actual boolean for comparison (handle different cases)
+    const isFromAgent = message.from_agent === true || 
+                       message.from_agent === 'true' || 
+                       message.from_agent === 'True';
     
     // Only process outgoing agent messages for SMS tickets
     if (!isFromAgent || ticket.channel !== 'sms') {
