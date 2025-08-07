@@ -29,10 +29,14 @@ export async function POST(req: NextRequest) {
     // Find or create Gorgias ticket for general messages
     const ticketResult = await findOrCreateGorgiasTicket(From, To, Body);
     
-    // Send auto-response only for new tickets (not when adding to existing)
+    // Send auto-response based on what happened
     const isNewTicket = ticketResult?.isNewTicket !== false;
+    const wasRestored = ticketResult?.wasRestored === true;
+    
     if (isNewTicket) {
       return sendTwiMLResponse("Thanks for contacting Rescue Link! We've received your message and will respond shortly. If this is your first time messaging us, please include your name so we can assist you better. For urgent matters, email support@dryeyerescue.com");
+    } else if (wasRestored) {
+      return sendTwiMLResponse("Thanks for your message! We've restored your previous conversation and added your new message.");
     } else {
       return sendTwiMLResponse("Thanks for your message! We've added it to your existing conversation.");
     }
@@ -143,9 +147,25 @@ async function findOrCreateGorgiasTicket(from: string, to: string, body: string)
           const ticketsData = await ticketsResponse.json();
           console.log('All tickets found:', ticketsData.data?.length || 0);
           
-          // Filter for open SMS tickets first, then by phone number in subject
-          const openSmsTickets = ticketsData.data?.filter((ticket: { status?: string; channel?: string; subject?: string }) => 
-            ticket.status === 'open' && ticket.channel === 'sms'
+          // First, look for trashed SMS tickets for this phone number
+          const trashedSmsTickets = ticketsData.data?.filter((ticket: { status?: string; channel?: string; subject?: string; trashed_datetime?: string }) => 
+            ticket.channel === 'sms' && ticket.trashed_datetime && ticket.subject && ticket.subject.includes(from)
+          ) || [];
+          
+          console.log('Trashed SMS tickets found for this phone:', trashedSmsTickets.length);
+          
+          if (trashedSmsTickets.length > 0) {
+            // Untrash the most recent ticket and add message to it
+            const ticketToRestore = trashedSmsTickets[0]; // Most recent first
+            console.log('Untrashing and restoring ticket:', ticketToRestore.id);
+            
+            const result = await untrashAndAddMessage(ticketToRestore.id, from, to, body, credentials);
+            return { ...result, isNewTicket: false, wasRestored: true };
+          }
+          
+          // If no trashed tickets, look for open SMS tickets (excluding trashed ones)
+          const openSmsTickets = ticketsData.data?.filter((ticket: { status?: string; channel?: string; subject?: string; trashed_datetime?: string }) => 
+            ticket.status === 'open' && ticket.channel === 'sms' && !ticket.trashed_datetime
           ) || [];
           
           console.log('Open SMS tickets found:', openSmsTickets.length);
@@ -154,7 +174,7 @@ async function findOrCreateGorgiasTicket(from: string, to: string, body: string)
             ticket.subject && ticket.subject.includes(from)
           );
           
-          console.log('Phone-specific tickets found:', phoneSpecificTickets.length);
+          console.log('Phone-specific open tickets found:', phoneSpecificTickets.length);
           
           if (phoneSpecificTickets.length > 0) {
             const existingTicket = phoneSpecificTickets[0];
@@ -216,6 +236,40 @@ async function addMessageToTicket(ticketId: number, from: string, to: string, bo
   const result = await response.json();
   console.log('Message added successfully to ticket:', ticketId);
   return result;
+}
+
+async function untrashAndAddMessage(ticketId: number, from: string, to: string, body: string, credentials: string) {
+  try {
+    console.log('Step 1: Untrashing ticket', ticketId);
+    
+    // Untrash the ticket by setting trashed_datetime to null
+    const untrashResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets/${ticketId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${credentials}`
+      },
+      body: JSON.stringify({ trashed_datetime: null })
+    });
+    
+    console.log('Untrash response status:', untrashResponse.status);
+    
+    if (!untrashResponse.ok) {
+      const errorText = await untrashResponse.text();
+      console.error('Failed to untrash ticket:', errorText);
+      throw new Error(`Failed to untrash ticket: ${untrashResponse.status} - ${errorText}`);
+    }
+    
+    console.log('✅ Ticket untrashed successfully');
+    console.log('Step 2: Adding message to restored ticket');
+    
+    // Now add the message to the untrashed ticket
+    return await addMessageToTicket(ticketId, from, to, body, credentials);
+    
+  } catch (error) {
+    console.error('Error in untrashAndAddMessage:', error);
+    throw error;
+  }
 }
 
 async function handleUnsubscribe(phoneNumber: string) {
