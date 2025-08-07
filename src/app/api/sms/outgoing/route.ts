@@ -15,18 +15,21 @@ export async function POST(req: NextRequest) {
     console.log('- Ticket channel:', ticket?.channel);
     console.log('- Customer email:', ticket?.customer?.email);
     
+    // Convert string boolean to actual boolean for comparison
+    const isFromAgent = message.from_agent === true || message.from_agent === 'true';
+    
     // Only process outgoing agent messages for SMS tickets
-    if (!message.from_agent || ticket.channel !== 'sms') {
+    if (!isFromAgent || ticket.channel !== 'sms') {
       console.log('Ignoring: not agent message or not SMS channel');
-      console.log('- message.from_agent:', message.from_agent);
+      console.log('- message.from_agent:', message.from_agent, '(converted to:', isFromAgent, ')');
       console.log('- ticket.channel:', ticket.channel);
       return NextResponse.json({ status: 'ignored' });
     }
     
-    // Additional check: make sure this is actually an agent reply, not customer message
-    if (message.from_agent !== true) {
-      console.log('Ignoring: message.from_agent is not explicitly true:', message.from_agent);
-      return NextResponse.json({ status: 'ignored - not from agent' });
+    // Extra safety: check sender_type if available
+    if (message.sender_type && message.sender_type === 'customer') {
+      console.log('Ignoring: sender_type indicates customer message:', message.sender_type);
+      return NextResponse.json({ status: 'ignored - customer sender' });
     }
     
     // Try multiple ways to get the phone number
