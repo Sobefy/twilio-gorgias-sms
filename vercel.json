@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "src/app/api/sms/incoming/route.ts": {
+      "maxDuration": 10
+    },
+    "src/app/api/sms/outgoing/route.ts": {
+      "maxDuration": 10
+    }
+  }
+}
