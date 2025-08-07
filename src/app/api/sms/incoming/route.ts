@@ -62,9 +62,14 @@ function sendTwiMLResponse(message: string) {
 }
 
 async function createGorgiasTicket(from: string, to: string, body: string) {
+  const credentials = Buffer.from(`${process.env.GORGIAS_USERNAME}:${process.env.GORGIAS_API_KEY}`).toString('base64');
+  
+  // Create individual customer for this phone number
+  const customer = await createOrUpdateCustomer(from, credentials);
+  
   const ticketData = {
     customer: {
-      email: `sms${from}@rescuelink.com`,
+      email: customer.email,
       phone: from
     },
     messages: [{
@@ -89,8 +94,6 @@ async function createGorgiasTicket(from: string, to: string, body: string) {
   console.log('API endpoint:', `https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets`);
   console.log('Auth header:', process.env.GORGIAS_API_KEY ? 'API key present' : 'API key missing');
   
-  const credentials = Buffer.from(`${process.env.GORGIAS_USERNAME}:${process.env.GORGIAS_API_KEY}`).toString('base64');
-  
   const response = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets`, {
     method: 'POST',
     headers: {
@@ -114,15 +117,109 @@ async function createGorgiasTicket(from: string, to: string, body: string) {
   return result;
 }
 
+async function createOrUpdateCustomer(phoneNumber: string, credentials: string) {
+  try {
+    console.log('Creating/finding individual customer for phone:', phoneNumber);
+    
+    // Create unique email for each phone number (remove + and use different format)
+    const cleanPhone = phoneNumber.replace('+', '');
+    const customerEmail = `sms-${cleanPhone}@rescuelink.com`;
+    
+    // First check if customer already exists for this specific phone number
+    const searchResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/customers?email=${encodeURIComponent(customerEmail)}`, {
+      headers: {
+        'Authorization': `Basic ${credentials}`
+      }
+    });
+    
+    if (searchResponse.ok) {
+      const searchData = await searchResponse.json();
+      
+      if (searchData.data && searchData.data.length > 0) {
+        // Customer exists for this phone number
+        const customer = searchData.data[0];
+        console.log('✅ Found existing customer for phone:', customer.id);
+        return {
+          id: customer.id,
+          email: customer.email,
+          phone: phoneNumber
+        };
+      } else {
+        // Customer doesn't exist, create new one for this phone number
+        console.log('Creating new customer for phone:', phoneNumber);
+        
+        const createData = {
+          email: customerEmail,
+          name: `SMS Customer ${phoneNumber}`,
+          channels: [{
+            type: "phone",
+            address: phoneNumber
+          }],
+          note: `Customer contacted via SMS from ${phoneNumber}`
+        };
+        
+        const createResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/customers`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Basic ${credentials}`
+          },
+          body: JSON.stringify(createData)
+        });
+        
+        if (createResponse.ok) {
+          const newCustomer = await createResponse.json();
+          console.log('✅ New customer created successfully:', newCustomer.id);
+          return {
+            id: newCustomer.id,
+            email: newCustomer.email,
+            phone: phoneNumber
+          };
+        } else {
+          const errorText = await createResponse.text();
+          console.log('⚠️ Failed to create customer:', errorText);
+          
+          // Fallback: return the expected structure for ticket creation
+          return {
+            id: null,
+            email: customerEmail,
+            phone: phoneNumber
+          };
+        }
+      }
+    } else {
+      console.log('⚠️ Customer search failed:', await searchResponse.text());
+      
+      // Fallback: return the expected structure for ticket creation
+      return {
+        id: null,
+        email: customerEmail,
+        phone: phoneNumber
+      };
+    }
+  } catch (error) {
+    console.error('Error creating/finding customer:', error);
+    
+    // Fallback: return the expected structure for ticket creation
+    const cleanPhone = phoneNumber.replace('+', '');
+    return {
+      id: null,
+      email: `sms-${cleanPhone}@rescuelink.com`,
+      phone: phoneNumber
+    };
+  }
+}
+
 async function findOrCreateGorgiasTicket(from: string, to: string, body: string) {
   const credentials = Buffer.from(`${process.env.GORGIAS_USERNAME}:${process.env.GORGIAS_API_KEY}`).toString('base64');
   
   try {
     console.log('Looking for existing customer and tickets for phone:', from);
     
-    // Gorgias consolidates all SMS customers to generic email, so search for that
-    const genericSmsEmail = 'sms@rescuelink.com';
-    const customerResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/customers?email=${encodeURIComponent(genericSmsEmail)}`, {
+    // Look for individual customer for this specific phone number
+    const cleanPhone = from.replace('+', '');
+    const customerEmail = `sms-${cleanPhone}@rescuelink.com`;
+    const customerResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/customers?email=${encodeURIComponent(customerEmail)}`, {
       headers: {
         'Authorization': `Basic ${credentials}`
       }
@@ -130,13 +227,13 @@ async function findOrCreateGorgiasTicket(from: string, to: string, body: string)
     
     if (customerResponse.ok) {
       const customerData = await customerResponse.json();
-      console.log('Generic SMS customer search result:', customerData.data?.length || 0, 'customers found');
+      console.log('Individual customer search result:', customerData.data?.length || 0, 'customers found');
       
       if (customerData.data && customerData.data.length > 0) {
         const customer = customerData.data[0];
-        console.log('Found generic SMS customer:', customer.id);
+        console.log('Found individual customer for phone:', customer.id);
         
-        // Look for existing tickets for this customer (filter manually since API doesn't support status/channel params)
+        // Look for existing tickets for this specific customer
         const ticketsResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets?customer_id=${customer.id}&limit=20`, {
           headers: {
             'Authorization': `Basic ${credentials}`
@@ -145,23 +242,17 @@ async function findOrCreateGorgiasTicket(from: string, to: string, body: string)
         
         if (ticketsResponse.ok) {
           const ticketsData = await ticketsResponse.json();
-          console.log('All tickets found:', ticketsData.data?.length || 0);
+          console.log('All tickets found for this customer:', ticketsData.data?.length || 0);
           
           // PRIORITY 1: Look for open SMS tickets first (active conversations)
-          const openSmsTickets = ticketsData.data?.filter((ticket: { status?: string; channel?: string; subject?: string; trashed_datetime?: string }) => 
+          const openSmsTickets = ticketsData.data?.filter((ticket: { status?: string; channel?: string; trashed_datetime?: string }) => 
             ticket.status === 'open' && ticket.channel === 'sms' && !ticket.trashed_datetime
           ) || [];
           
-          console.log('Open SMS tickets found:', openSmsTickets.length);
+          console.log('Open SMS tickets found for this customer:', openSmsTickets.length);
           
-          const phoneSpecificOpenTickets = openSmsTickets.filter((ticket: { subject?: string }) => 
-            ticket.subject && ticket.subject.includes(from)
-          );
-          
-          console.log('Phone-specific open tickets found:', phoneSpecificOpenTickets.length);
-          
-          if (phoneSpecificOpenTickets.length > 0) {
-            const existingTicket = phoneSpecificOpenTickets[0];
+          if (openSmsTickets.length > 0) {
+            const existingTicket = openSmsTickets[0];
             console.log('Adding message to existing active ticket:', existingTicket.id);
             
             // Add message to existing active ticket
@@ -170,11 +261,11 @@ async function findOrCreateGorgiasTicket(from: string, to: string, body: string)
           }
           
           // PRIORITY 2: Only if no open tickets, then look for trashed tickets to restore
-          const trashedSmsTickets = ticketsData.data?.filter((ticket: { status?: string; channel?: string; subject?: string; trashed_datetime?: string }) => 
-            ticket.channel === 'sms' && ticket.trashed_datetime && ticket.subject && ticket.subject.includes(from)
+          const trashedSmsTickets = ticketsData.data?.filter((ticket: { status?: string; channel?: string; trashed_datetime?: string }) => 
+            ticket.channel === 'sms' && ticket.trashed_datetime
           ) || [];
           
-          console.log('Trashed SMS tickets found for this phone:', trashedSmsTickets.length);
+          console.log('Trashed SMS tickets found for this customer:', trashedSmsTickets.length);
           
           if (trashedSmsTickets.length > 0) {
             // Untrash the most recent ticket and add message to it
@@ -188,8 +279,8 @@ async function findOrCreateGorgiasTicket(from: string, to: string, body: string)
       }
     }
     
-    // If no existing customer or ticket found, create new ticket
-    console.log('Creating new ticket for new customer');
+    // If no existing customer or ticket found, create new ticket (which will create individual customer)
+    console.log('Creating new ticket and customer for phone:', from);
     const result = await createGorgiasTicket(from, to, body);
     return { ...result, isNewTicket: true };
     

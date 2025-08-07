@@ -43,12 +43,12 @@ export async function POST(req: NextRequest) {
     if (customerPhone) {
       console.log('Using phone from ticket data:', customerPhone);
     } else {
-      // Fallback: Extract phone number from customer email (sms+15617259387@rescuelink.com)
+      // Extract phone number from customer email (sms+15617259387@rescuelink.com)
       const customerEmail = ticket.customer.email;
       console.log('Extracting phone from email:', customerEmail);
       
-      // More flexible regex to handle different formats
-      const phoneMatch = customerEmail.match(/sms([^@]*?)@/) || customerEmail.match(/(\+\d+)/);
+      // Updated regex for individual customer format: sms-15617259387@rescuelink.com  
+      const phoneMatch = customerEmail.match(/sms-(\d+)@/) || customerEmail.match(/(\+?\d+)/);
       
       if (!phoneMatch) {
         console.error('Could not extract phone number from:', customerEmail);
