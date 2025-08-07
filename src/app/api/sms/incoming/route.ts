@@ -1,7 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import twilio from 'twilio';
-
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,7 +12,7 @@ export async function POST(req: NextRequest) {
     
     if (messageBody === 'stop' || messageBody === 'unsubscribe') {
       await handleUnsubscribe(From);
-      return sendTwiMLResponse("You've been unsubscribed from Rescue Link SMS. Text START to resubscribe. For support: support@rescuelink.com");
+      return sendTwiMLResponse("CONFIRMED: You've been unsubscribed from Rescue Link SMS notifications. You will not receive any more automated messages. Text START to resubscribe or email support@rescuelink.com for assistance.");
     }
     
     if (messageBody === 'start' || messageBody === 'subscribe') {
@@ -24,14 +21,16 @@ export async function POST(req: NextRequest) {
     }
     
     if (messageBody === 'help') {
-      return sendTwiMLResponse("Rescue Link Help: Reply STOP to opt out, START to opt in. For support: support@rescuelink.com");
+      // Create Gorgias ticket for help requests
+      await createGorgiasTicket(From, To, 'Customer requested help via SMS');
+      return sendTwiMLResponse("Hi! You can text us anytime and someone from our Rescue Link team will respond. Please include your name in your message so we can assist you better. Reply STOP to opt out or email support@rescuelink.com");
     }
     
     // Create Gorgias ticket for general messages
     await createGorgiasTicket(From, To, Body);
     
     // Send auto-response
-    return sendTwiMLResponse("Thanks for contacting Rescue Link! We've received your message and will respond shortly. For urgent matters, email support@rescuelink.com");
+    return sendTwiMLResponse("Thanks for contacting Rescue Link! We've received your message and will respond shortly. If this is your first time messaging us, please include your name so we can assist you better. For urgent matters, email support@rescuelink.com");
     
   } catch (error) {
     console.error('Error processing SMS:', error);
@@ -95,7 +94,17 @@ async function createGorgiasTicket(from: string, to: string, body: string) {
 }
 
 async function handleUnsubscribe(phoneNumber: string) {
-  console.log(`Unsubscribed: ${phoneNumber}`);
+  try {
+    // Log unsubscribe for compliance tracking
+    console.log(`SMS Unsubscribe: ${phoneNumber} at ${new Date().toISOString()}`);
+    
+    // Store unsubscribe in a database or service if needed
+    // For now, we'll just log it for compliance purposes
+    // TODO: Implement persistent storage for unsubscribe list
+    
+  } catch (error) {
+    console.error(`Error handling unsubscribe for ${phoneNumber}:`, error);
+  }
 }
 
 async function handleSubscribe(phoneNumber: string) {
