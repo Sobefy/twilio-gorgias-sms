@@ -21,16 +21,21 @@ export async function POST(req: NextRequest) {
     }
     
     if (messageBody === 'help') {
-      // Create Gorgias ticket for help requests
-      await createGorgiasTicket(From, To, 'Customer requested help via SMS');
+      // Find or create Gorgias ticket for help requests
+      await findOrCreateGorgiasTicket(From, To, 'Customer requested help via SMS');
       return sendTwiMLResponse("Hi! You can text us anytime and someone from our Rescue Link team will respond. Please include your name in your message so we can assist you better. Reply STOP to opt out or email support@dryeyerescue.com");
     }
     
-    // Create Gorgias ticket for general messages
-    await createGorgiasTicket(From, To, Body);
+    // Find or create Gorgias ticket for general messages
+    const ticketResult = await findOrCreateGorgiasTicket(From, To, Body);
     
-    // Send auto-response
-    return sendTwiMLResponse("Thanks for contacting Rescue Link! We've received your message and will respond shortly. If this is your first time messaging us, please include your name so we can assist you better. For urgent matters, email support@dryeyerescue.com");
+    // Send auto-response only for new tickets (not when adding to existing)
+    const isNewTicket = ticketResult?.isNewTicket !== false;
+    if (isNewTicket) {
+      return sendTwiMLResponse("Thanks for contacting Rescue Link! We've received your message and will respond shortly. If this is your first time messaging us, please include your name so we can assist you better. For urgent matters, email support@dryeyerescue.com");
+    } else {
+      return sendTwiMLResponse("Thanks for your message! We've added it to your existing conversation.");
+    }
     
   } catch (error) {
     console.error('Error processing SMS:', error);
@@ -102,6 +107,101 @@ async function createGorgiasTicket(from: string, to: string, body: string) {
   
   const result = await response.json();
   console.log('Gorgias ticket created successfully:', result);
+  return result;
+}
+
+async function findOrCreateGorgiasTicket(from: string, to: string, body: string) {
+  const credentials = Buffer.from(`${process.env.GORGIAS_USERNAME}:${process.env.GORGIAS_API_KEY}`).toString('base64');
+  const customerEmail = `sms${from}@rescuelink.com`;
+  
+  try {
+    console.log('Looking for existing customer and tickets for:', from);
+    
+    // First, try to find existing customer
+    const customerResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/customers?email=${encodeURIComponent(customerEmail)}`, {
+      headers: {
+        'Authorization': `Basic ${credentials}`
+      }
+    });
+    
+    if (customerResponse.ok) {
+      const customerData = await customerResponse.json();
+      console.log('Customer search result:', customerData.data?.length || 0, 'customers found');
+      
+      if (customerData.data && customerData.data.length > 0) {
+        const customer = customerData.data[0];
+        console.log('Found existing customer:', customer.id);
+        
+        // Look for existing open SMS tickets for this customer
+        const ticketsResponse = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets?customer_id=${customer.id}&status=open&channel=sms&limit=1`, {
+          headers: {
+            'Authorization': `Basic ${credentials}`
+          }
+        });
+        
+        if (ticketsResponse.ok) {
+          const ticketsData = await ticketsResponse.json();
+          console.log('Open SMS tickets found:', ticketsData.data?.length || 0);
+          
+          if (ticketsData.data && ticketsData.data.length > 0) {
+            const existingTicket = ticketsData.data[0];
+            console.log('Adding message to existing ticket:', existingTicket.id);
+            
+            // Add message to existing ticket
+            const result = await addMessageToTicket(existingTicket.id, from, to, body, credentials);
+            return { ...result, isNewTicket: false };
+          }
+        }
+      }
+    }
+    
+    // If no existing customer or ticket found, create new ticket
+    console.log('Creating new ticket for new customer');
+    const result = await createGorgiasTicket(from, to, body);
+    return { ...result, isNewTicket: true };
+    
+  } catch (error) {
+    console.error('Error in findOrCreateGorgiasTicket:', error);
+    // Fallback to creating new ticket
+    const result = await createGorgiasTicket(from, to, body);
+    return { ...result, isNewTicket: true };
+  }
+}
+
+async function addMessageToTicket(ticketId: number, from: string, to: string, body: string, credentials: string) {
+  const messageData = {
+    source: {
+      to: [{ address: to }],
+      from: { address: from },
+      type: "phone"
+    },
+    body_text: body,
+    channel: "sms",
+    from_agent: false,
+    via: "api"
+  };
+  
+  console.log('Adding message to ticket', ticketId, ':', JSON.stringify(messageData, null, 2));
+  
+  const response = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets/${ticketId}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Basic ${credentials}`
+    },
+    body: JSON.stringify(messageData)
+  });
+  
+  console.log('Add message response status:', response.status);
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Failed to add message to ticket:', errorText);
+    throw new Error(`Failed to add message: ${response.status} - ${errorText}`);
+  }
+  
+  const result = await response.json();
+  console.log('Message added successfully to ticket:', ticketId);
   return result;
 }
 
