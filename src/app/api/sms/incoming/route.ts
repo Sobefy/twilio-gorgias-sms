@@ -77,6 +77,10 @@ async function createGorgiasTicket(from: string, to: string, body: string) {
     subject: `SMS from ${from}`
   };
   
+  console.log('Creating Gorgias ticket with data:', JSON.stringify(ticketData, null, 2));
+  console.log('API endpoint:', `https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets`);
+  console.log('Auth header:', process.env.GORGIAS_API_KEY ? 'API key present' : 'API key missing');
+  
   const response = await fetch(`https://${process.env.GORGIAS_DOMAIN}.gorgias.com/api/tickets`, {
     method: 'POST',
     headers: {
@@ -86,11 +90,18 @@ async function createGorgiasTicket(from: string, to: string, body: string) {
     body: JSON.stringify(ticketData)
   });
   
+  console.log('Gorgias API response status:', response.status);
+  console.log('Gorgias API response headers:', Object.fromEntries(response.headers.entries()));
+  
   if (!response.ok) {
-    throw new Error(`Gorgias API error: ${response.status}`);
+    const errorText = await response.text();
+    console.error('Gorgias API error response:', errorText);
+    throw new Error(`Gorgias API error: ${response.status} - ${errorText}`);
   }
   
-  return response.json();
+  const result = await response.json();
+  console.log('Gorgias ticket created successfully:', result);
+  return result;
 }
 
 async function handleUnsubscribe(phoneNumber: string) {
