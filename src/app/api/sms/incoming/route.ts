@@ -63,11 +63,9 @@ async function createGorgiasTicket(from: string, to: string, body: string) {
         from: { address: from },
         type: "phone"
       },
-      body_html: body,
       body_text: body,
       channel: "sms",
       from_agent: false,
-      stripped_text: body,
       via: "api"
     }],
     channel: "sms",
