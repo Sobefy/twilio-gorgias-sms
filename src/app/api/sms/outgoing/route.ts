@@ -18,7 +18,15 @@ export async function POST(req: NextRequest) {
     // Only process outgoing agent messages for SMS tickets
     if (!message.from_agent || ticket.channel !== 'sms') {
       console.log('Ignoring: not agent message or not SMS channel');
+      console.log('- message.from_agent:', message.from_agent);
+      console.log('- ticket.channel:', ticket.channel);
       return NextResponse.json({ status: 'ignored' });
+    }
+    
+    // Additional check: make sure this is actually an agent reply, not customer message
+    if (message.from_agent !== true) {
+      console.log('Ignoring: message.from_agent is not explicitly true:', message.from_agent);
+      return NextResponse.json({ status: 'ignored - not from agent' });
     }
     
     // Try multiple ways to get the phone number
