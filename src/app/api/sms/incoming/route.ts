@@ -55,7 +55,13 @@ function sendTwiMLResponse(message: string) {
 async function createGorgiasTicket(from: string, to: string, body: string) {
   const ticketData = {
     customer: {
-      email: `sms${from}@rescuelink.com`
+      email: `sms${from}@rescuelink.com`,
+      channels: [
+        {
+          type: "phone",
+          address: from
+        }
+      ]
     },
     messages: [{
       source: {

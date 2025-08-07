@@ -21,29 +21,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: 'ignored' });
     }
     
-    // Extract phone number from customer email (sms+15617259387@rescuelink.com)
-    const customerEmail = ticket.customer.email;
-    console.log('Extracting phone from email:', customerEmail);
+    // Try to get phone from customer.phone field first, then fall back to email extraction
+    let customerPhone = ticket.customer.phone;
     
-    // More flexible regex to handle different formats
-    const phoneMatch = customerEmail.match(/sms([^@]*?)@/) || customerEmail.match(/(\+\d+)/);
-    
-    if (!phoneMatch) {
-      console.error('Could not extract phone number from:', customerEmail);
-      return NextResponse.json({ error: 'Could not extract phone number' }, { status: 400 });
+    if (customerPhone) {
+      console.log('Using phone from customer.phone field:', customerPhone);
+    } else {
+      // Fallback: Extract phone number from customer email (sms+15617259387@rescuelink.com)
+      const customerEmail = ticket.customer.email;
+      console.log('Extracting phone from email:', customerEmail);
+      
+      // More flexible regex to handle different formats
+      const phoneMatch = customerEmail.match(/sms([^@]*?)@/) || customerEmail.match(/(\+\d+)/);
+      
+      if (!phoneMatch) {
+        console.error('Could not extract phone number from:', customerEmail);
+        return NextResponse.json({ error: 'Could not extract phone number' }, { status: 400 });
+      }
+      
+      customerPhone = phoneMatch[1];
+      console.log('Extracted phone from email:', customerPhone);
     }
     
-    let customerPhone = phoneMatch[1];
-    
-    // Clean up phone number (remove + prefix if present)
-    if (customerPhone.startsWith('+')) {
-      customerPhone = customerPhone;
-    } else {
-      // If no + prefix, assume it needs one
+    // Ensure phone has + prefix
+    if (!customerPhone.startsWith('+')) {
       customerPhone = '+' + customerPhone;
     }
     
-    console.log('Extracted phone number:', customerPhone);
+    console.log('Final phone number:', customerPhone);
     
     // Send SMS via Twilio
     console.log('Sending SMS via Twilio:');
